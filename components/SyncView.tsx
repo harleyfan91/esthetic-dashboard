@@ -51,7 +51,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           }
 
           const ai = new GoogleGenAI({ apiKey: apiKey! });
-          // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
+          
           const response = await ai.models.generateContent({
             model: 'gemini-1.5-flash',
             contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
@@ -70,8 +70,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
               }
             }
           });
-          const text = response.text;
-          if (text) mapping = JSON.parse(text);
+          
+          // ✅ FIX: Strip Markdown from Header Mapping too
+          const rawText = response.text || '{}';
+          const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+          mapping = JSON.parse(cleanJson);
+
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
         }
@@ -179,25 +183,31 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
            for (const batch of batches) {
              try {
-                // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
+                // ✅ UPDATED: Stricter Prompt + Strict Category List
                 const response = await ai.models.generateContent({
                    model: 'gemini-1.5-flash',
                    contents: `
                      You are a jewelry inventory assistant. 
-                     Input: List of product strings.
-                     Task:
-                     1. Identify the Jewelry Type (Rings, Bracelets, Necklaces, Pendants, Earrings, Anklets, Charms, Sets, or Other).
-                     2. Create a "Clean Name" (remove internal codes like "SZ 6" or "Gold Filled").
+                     Task: Map each input to a category and a clean name.
+                     
+                     Allowed Categories: [Rings, Bracelets, Necklaces, Pendants, Earrings, Anklets, Charms, Sets, Other]
+                     
+                     Rules:
+                     1. Clean Name must remove sizes (e.g., "Size 7") or metal types (e.g., "14k") if it makes the name cleaner.
+                     2. If an item doesn't fit, use "Other".
                      
                      Input List: ${JSON.stringify(batch)}
                      
-                     Return ONLY a JSON object where keys are the exact input strings.
-                     Example: { "Gold Ring Sz 6": { "category": "Rings", "cleanName": "Gold Ring" } }
+                     Return ONLY a JSON object. Example: {"Gold Ring SZ 7": {"category": "Rings", "cleanName": "Gold Ring"}}
                    `,
                    config: { responseMimeType: "application/json" }
                 });
                 
-                const batchResult = JSON.parse(response.text || '{}');
+                // ✅ FIX: Strip Markdown Code Blocks
+                const rawText = response.text || '{}';
+                const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+                const batchResult = JSON.parse(cleanJson);
+                
                 Object.assign(enrichmentMap, batchResult);
              } catch (e) {
                 console.error("Batch enrichment failed", e);
@@ -210,6 +220,8 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
                 return { 
                   ...sale, 
                   category: enriched.category || sale.category,
+                  // Optional: use enriched.cleanName if desired
+                  // product: enriched.cleanName || sale.product
                 };
               }
               return sale;
