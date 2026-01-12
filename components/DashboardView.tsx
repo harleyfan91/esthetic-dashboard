@@ -45,7 +45,6 @@ const CustomDayTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-// ✅ NEW: Styled Revenue Tooltip
 const CustomRevenueTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -168,7 +167,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }));
   }, [filteredData]);
 
-  // 3. AI ANALYSIS
+  // 3. AI ANALYSIS (Refined to strictly JSON)
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
@@ -192,8 +191,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         timeSpanLabel: timeRange 
       };
       
+      // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-1.5-flash',
         contents: `Analyze this data: ${JSON.stringify(summary)}. 
         Return a JSON object with these 4 keys (strings):
         "drive": A 5-word motivational phrase.
@@ -225,15 +225,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
 
   useEffect(() => { getStrategicAnalysis(); }, [filteredData.length, timeRange, master.lastUpdated]);
 
-  // Default values so it doesn't look broken before AI runs
-  let driveText = "Analyzing your data...";
+  // Parsing Logic (JSON or Fallback)
+  let driveText = "Ready to analyze...";
   let insightCards = [
-    { title: "SUCCESS", text: "Processing recent sales..." },
+    { title: "SUCCESS", text: "Tracking sales data." },
     { title: "GAP", text: "Identifying trends..." },
     { title: "MOVE", text: "Calculating growth..." }
   ];
 
-  // If no data at all
   if (filteredData.length === 0) {
      driveText = "Upload data to begin.";
      insightCards = [
@@ -255,7 +254,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         ];
       }
     } catch (e) {
-      // Fallback for legacy format
+      // Legacy Fallback
       const parts = strategy.split('---');
       const d = parts.find(s => s.includes('DRIVE:'));
       if (d) driveText = d.replace('DRIVE:', '').trim();
@@ -429,17 +428,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
            <Trash2 className="w-4 h-4" /> Reset Records
          </button>
       </div>
-    </div>
-  );
-};
-
-const KPIContainer = ({ label, value, subtitle, children }: any) => {
-  return (
-    <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-xl min-h-[300px]">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{label}</p>
-      <p className="text-3xl font-black text-slate-900 tracking-tighter truncate">{value}</p>
-      {subtitle && <p className="text-xs font-bold text-indigo-500 mt-2">{subtitle}</p>}
-      {children}
     </div>
   );
 };
