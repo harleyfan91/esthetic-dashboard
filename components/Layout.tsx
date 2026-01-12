@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { LayoutDashboard, CloudUpload, BarChart3, Settings, X, Menu, LogOut, User, Cloud, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, CloudUpload, BarChart3, X, LogOut, User, Cloud, RefreshCw } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface LayoutProps {
@@ -17,7 +16,6 @@ export const Layout: React.FC<LayoutProps> = ({
   children, currentView, setView, masterName, googleUser, onSignOut, cloudSyncing 
 }) => {
   const [showAccount, setShowAccount] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
     { id: 'sync' as ViewState, label: 'Add Sales Data', icon: CloudUpload },
@@ -26,7 +24,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      {/* Simple Account Modal */}
+      {/* Account Modal */}
       {showAccount && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] p-10 max-w-sm w-full shadow-2xl animate-in zoom-in duration-200">
@@ -45,8 +43,8 @@ export const Layout: React.FC<LayoutProps> = ({
                   <User className="w-8 h-8 text-indigo-400" />
                 )}
               </div>
-              <p className="text-lg font-black text-slate-900">{googleUser?.name || 'User'}</p>
-              <p className="text-sm font-medium text-slate-400">{googleUser?.email}</p>
+              <p className="text-lg font-black text-slate-900">{googleUser?.name || 'Authorized User'}</p>
+              <p className="text-sm font-medium text-slate-400">{googleUser?.email || 'Connected via Cloudflare'}</p>
               
               <div className={`mt-4 px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border flex items-center gap-1.5 transition-colors ${
                 cloudSyncing ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
@@ -56,15 +54,13 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3">
-              <button
-                onClick={onSignOut}
-                className="w-full text-red-500 py-4 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out
-              </button>
-            </div>
+            <button
+              onClick={onSignOut}
+              className="w-full text-red-500 py-4 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
           </div>
         </div>
       )}
@@ -112,7 +108,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <div className="overflow-hidden text-left">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest group-hover:text-indigo-400">Account</p>
               <p className="text-sm font-bold text-slate-700 truncate">
-                {cloudSyncing ? 'Saving...' : (googleUser?.name || 'Cloud Active')}
+                {cloudSyncing ? 'Saving...' : (googleUser?.name || 'Active')}
               </p>
             </div>
           </button>
