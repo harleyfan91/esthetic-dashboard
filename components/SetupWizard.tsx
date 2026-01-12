@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Database, ArrowRight, Loader2, Cloud, Sparkles, History, Key, ShieldCheck } from 'lucide-react';
+import { Database, ArrowRight, Loader2, Cloud, Sparkles, History, ShieldCheck } from 'lucide-react';
 import { GoogleDriveService } from '../lib/googleDrive';
 import { MasterRecord } from '../types';
 
@@ -12,7 +11,7 @@ interface SetupWizardProps {
 
 export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleService, onAuthenticated }) => {
   const [step, setStep] = useState(1);
-  const [hasApiKey, setHasApiKey] = useState(false);
+  // Removed the "hasApiKey" state that was causing the lock screen
   const [fileName, setFileName] = useState('Business Sales History');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -20,29 +19,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleServ
   const [foundCloudRecord, setFoundCloudRecord] = useState<MasterRecord | null>(null);
 
   const MASTER_FILE_NAME = 'Esthetic_Master_Record.json';
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
-      } else {
-        setHasApiKey(!!process.env.API_KEY);
-      }
-    };
-    checkApiKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-      try {
-        await window.aistudio.openSelectKey();
-        setHasApiKey(true);
-      } catch (err) {
-        console.error("Key selection failed", err);
-      }
-    }
-  };
 
   const handleConnect = async () => {
     setIsAuthenticating(true);
@@ -78,35 +54,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleServ
     }
   };
 
-  if (!hasApiKey && !process.env.API_KEY) {
-    return (
-      <div className="max-w-xl mx-auto mt-20 text-center px-4">
-        <div className="bg-white p-12 rounded-[56px] shadow-2xl border border-slate-100 animate-in fade-in slide-in-from-bottom-6 duration-700">
-          <div className="w-20 h-20 bg-indigo-50 rounded-[32px] flex items-center justify-center mx-auto mb-8 shadow-xl shadow-indigo-100">
-            <Key className="w-10 h-10 text-indigo-500" />
-          </div>
-          <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tighter">Connect Gemini</h2>
-          <p className="text-slate-500 mb-6 font-medium text-lg leading-relaxed">
-            Link your Gemini API Key to enable automatic mapping and growth insights.
-          </p>
-          
-          <div className="bg-emerald-50 rounded-3xl p-6 mb-10 text-left border border-emerald-100">
-            <div className="flex gap-4">
-               <div className="mt-1"><ShieldCheck className="w-5 h-5 text-emerald-500" /></div>
-               <p className="text-sm font-bold text-emerald-800">Ready for Gemini Flash. Fast, reliable, and optimized for free-tier usage.</p>
-            </div>
-          </div>
-
-          <button 
-            onClick={handleSelectKey} 
-            className="w-full bg-slate-900 text-white font-black py-6 rounded-[32px] transition-all shadow-xl flex items-center justify-center gap-3 group text-xl hover:bg-black active:scale-95"
-          >
-            Select API Key
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // The "if (!hasApiKey)" block that showed the button has been removed.
+  // The wizard now starts directly at the Google Login step.
 
   return (
     <div className="max-w-xl mx-auto mt-20 text-center px-4 pb-20">
