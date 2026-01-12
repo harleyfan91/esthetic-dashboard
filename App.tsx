@@ -18,13 +18,14 @@ const App: React.FC = () => {
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [cloudSyncing, setCloudSyncing] = useState(false);
 
-  // Note: Using process.env.API_KEY directly in the service initialization.
-  // It is populated after the user selects a key via window.aistudio.openSelectKey()
-  const googleService = useMemo(() => {
-  // This tells the app to look for a variable named VITE_GEMINI_API_KEY
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    return new GoogleDriveService(GOOGLE_CLIENT_ID, apiKey);
-  }, []);
+const googleService = useMemo(() => {
+  // We need BOTH the Gemini key and the Google API Key
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  const googleKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
+  
+  // Note: We are passing the googleKey here so the Picker can see it
+  return new GoogleDriveService(GOOGLE_CLIENT_ID, googleKey);
+}, []);
 
   useEffect(() => {
     const savedMaster = localStorage.getItem('maker_master_record');
