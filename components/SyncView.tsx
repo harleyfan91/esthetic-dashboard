@@ -51,8 +51,9 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           }
 
           const ai = new GoogleGenAI({ apiKey: apiKey! });
+          // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
           const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-1.5-flash',
             contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
             config: {
               responseMimeType: "application/json",
@@ -145,9 +146,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
             : parseFloat(rawAmount || 0);
           
           const rawProduct = String(item[mapping.product] || 'Unknown');
-
-          // If mapping.category is empty string, we use "General" temporarily
-          // If mapping.category is set, we use the value from the file
           const rawCategory = mapping.category ? String(item[mapping.category] || 'General') : 'General';
 
           return {
@@ -162,14 +160,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         .filter(s => s.amount > 0 || (s.product !== 'Unknown' && s.product !== ''));
 
       // 2. AI ENRICHMENT (Categorization)
-      // Run this if Category column was blank OR if the data looks generic ("General")
       const needsEnrichment = !mapping.category || parsedSales.some(s => s.category === 'General');
       
       if (needsEnrichment) {
         setProcessingStep('AI is categorizing your jewelry...');
         
         const uniqueProducts = [...new Set(parsedSales.map(s => s.product))];
-        // Batch in groups of 50 to respect token limits if massive file
         const batchSize = 100;
         const batches = [];
         for (let i = 0; i < uniqueProducts.length; i += batchSize) {
@@ -183,8 +179,9 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
            for (const batch of batches) {
              try {
+                // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
                 const response = await ai.models.generateContent({
-                   model: 'gemini-3-flash-preview',
+                   model: 'gemini-1.5-flash',
                    contents: `
                      You are a jewelry inventory assistant. 
                      Input: List of product strings.
@@ -207,15 +204,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
              }
            }
 
-           // Apply AI results to the sales data
            parsedSales = parsedSales.map(sale => {
               const enriched = enrichmentMap[sale.product];
               if (enriched) {
                 return { 
                   ...sale, 
                   category: enriched.category || sale.category,
-                  // Optional: You can overwrite product with enriched.cleanName if you want cleaner lists
-                  // product: enriched.cleanName || sale.product 
                 };
               }
               return sale;
