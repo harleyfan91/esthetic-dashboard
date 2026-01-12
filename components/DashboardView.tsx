@@ -235,10 +235,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         }
       });
       
-      const insightJson = response.text || "{}";
-      setStrategy(insightJson);
+      // ✅ FIX: Strip Markdown Code Blocks here too
+      const rawText = response.text || '{}';
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      
+      setStrategy(cleanJson);
       setLastAnalyzedRange(timeRange);
-      onSaveAnalysis(insightJson);
+      onSaveAnalysis(cleanJson);
     } catch (err: any) {
       console.error("Analysis failed:", err);
     } finally { setIsAiLoading(false); }
