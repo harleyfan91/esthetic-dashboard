@@ -21,7 +21,8 @@ type TimeRange = 'all' | '7d' | '30d' | 'custom';
 
 const COLORS = ['#6366f1', '#f97316', '#059669', '#8b5cf6', '#ec4899', '#f59e0b'];
 
-// Custom Tooltip for Best Days Chart
+// --- CUSTOM TOOLTIPS ---
+
 const CustomDayTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -37,6 +38,22 @@ const CustomDayTooltip = ({ active, payload, label }: any) => {
              <span className="text-slate-400">Revenue:</span>
              <span className="text-white font-bold">${data.revenue.toLocaleString()}</span>
            </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+// ✅ NEW: Styled Revenue Tooltip
+const CustomRevenueTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-800 animate-in zoom-in duration-200 min-w-[140px]">
+        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2">{label}</p>
+        <div className="flex justify-between gap-4 text-xs font-medium">
+             <span className="text-slate-400">Revenue:</span>
+             <span className="text-white font-bold text-lg">${payload[0].value.toLocaleString()}</span>
         </div>
       </div>
     );
@@ -151,7 +168,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }));
   }, [filteredData]);
 
-  // 3. AI ANALYSIS (Refined to strictly JSON)
+  // 3. AI ANALYSIS
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
@@ -177,12 +194,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Analyze: ${JSON.stringify(summary)}. 
-        Generate 4 distinct strategic insights.
-        1. 'drive': A short motivational phrase (max 10 words).
-        2. 'win': The biggest success factor in this data.
-        3. 'risk': A potential gap or risk.
-        4. 'action': One specific growth action to take.`,
+        contents: `Analyze this data: ${JSON.stringify(summary)}. 
+        Return a JSON object with these 4 keys (strings):
+        "drive": A 5-word motivational phrase.
+        "win": The best performing aspect.
+        "risk": A missing opportunity or risk.
+        "action": One specific tactic to increase sales.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -208,17 +225,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
 
   useEffect(() => { getStrategicAnalysis(); }, [filteredData.length, timeRange, master.lastUpdated]);
 
-  // Parsing Logic (JSON or Fallback)
-  let driveText = "Every sale matters. Keep building!";
+  // Default values so it doesn't look broken before AI runs
+  let driveText = "Analyzing your data...";
   let insightCards = [
-    { title: "SUCCESS", text: "Tracking sales data." },
-    { title: "GAP", text: "Not enough data yet." },
-    { title: "MOVE", text: "Keep adding records." }
+    { title: "SUCCESS", text: "Processing recent sales..." },
+    { title: "GAP", text: "Identifying trends..." },
+    { title: "MOVE", text: "Calculating growth..." }
   ];
+
+  // If no data at all
+  if (filteredData.length === 0) {
+     driveText = "Upload data to begin.";
+     insightCards = [
+        { title: "SUCCESS", text: "No data found." },
+        { title: "GAP", text: "Upload a file." },
+        { title: "MOVE", text: "Start tracking." }
+     ];
+  }
 
   if (strategy) {
     try {
-      // 1. Try JSON Parse (New format)
       const parsed = JSON.parse(strategy);
       if (parsed.drive) {
         driveText = parsed.drive;
@@ -229,7 +255,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         ];
       }
     } catch (e) {
-      // 2. Fallback to string split (Legacy support)
+      // Fallback for legacy format
       const parts = strategy.split('---');
       const d = parts.find(s => s.includes('DRIVE:'));
       if (d) driveText = d.replace('DRIVE:', '').trim();
@@ -361,7 +387,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
            {isAiLoading ? "Processing data..." : driveText}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-           {filteredData.length > 0 && insightCards.map((card, i) => (
+           {insightCards.map((card, i) => (
              <div key={i} className="bg-white/5 border border-white/5 p-6 rounded-3xl">
                <p className="text-[9px] font-black tracking-widest uppercase text-slate-500 mb-2">{card.title}</p>
                <p className="text-sm text-slate-300 leading-relaxed">{card.text}</p>
@@ -378,7 +404,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={revenueTrend}>
                   <XAxis dataKey="date" tick={{fontSize: 9}} tickFormatter={(val) => val.slice(5)} />
-                  <Tooltip />
+                  <Tooltip content={<CustomRevenueTooltip />} cursor={{ stroke: '#f97316', strokeWidth: 2, strokeDasharray: '5 5' }} />
                   <Area type="monotone" dataKey="revenue" stroke="#f97316" fill="#f97316" fillOpacity={0.1} />
                 </AreaChart>
               </ResponsiveContainer>
