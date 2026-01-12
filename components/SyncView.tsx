@@ -53,7 +53,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           const ai = new GoogleGenAI({ apiKey: apiKey! });
           
           const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash-001',
+            model: 'gemini-1.5-flash',
             contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
             config: {
               responseMimeType: "application/json",
@@ -71,7 +71,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
             }
           });
           
-          // ✅ FIX: Strip Markdown from Header Mapping too
           const rawText = response.text || '{}';
           const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
           mapping = JSON.parse(cleanJson);
@@ -183,9 +182,9 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
            for (const batch of batches) {
              try {
-                // ✅ UPDATED: Stricter Prompt + Strict Category List
+                // ✅ FIX: Reverted to standard 'gemini-1.5-flash'
                 const response = await ai.models.generateContent({
-                   model: 'gemini-1.5-flash-001',
+                   model: 'gemini-1.5-flash',
                    contents: `
                      You are a jewelry inventory assistant. 
                      Task: Map each input to a category and a clean name.
@@ -198,12 +197,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
                      
                      Input List: ${JSON.stringify(batch)}
                      
-                     Return ONLY a JSON object. Example: {"Gold Ring SZ 7": {"category": "Rings", "cleanName": "Gold Ring"}}
+                     Return ONLY a JSON object where keys are the exact input strings.
+                     Example: { "Gold Ring Sz 6": { "category": "Rings", "cleanName": "Gold Ring" } }
                    `,
                    config: { responseMimeType: "application/json" }
                 });
                 
-                // ✅ FIX: Strip Markdown Code Blocks
                 const rawText = response.text || '{}';
                 const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
                 const batchResult = JSON.parse(cleanJson);
@@ -220,8 +219,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
                 return { 
                   ...sale, 
                   category: enriched.category || sale.category,
-                  // Optional: use enriched.cleanName if desired
-                  // product: enriched.cleanName || sale.product
                 };
               }
               return sale;
