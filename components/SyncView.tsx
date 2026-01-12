@@ -4,7 +4,6 @@ import {
 } from 'lucide-react';
 import { MasterRecord, SaleRecord } from '../types';
 import { GoogleDriveService } from '../lib/googleDrive';
-import { GoogleGenAI, Type } from "@google/genai";
 import * as XLSX from 'xlsx';
 
 interface SyncViewProps {
@@ -24,6 +23,28 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper for Direct API Calls (Bypassing Library)
+  const callGeminiDirect = async (prompt: string): Promise<string> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) throw new Error("API Key missing");
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+
+    if (!response.ok) throw new Error(`Gemini API Error: ${response.statusText}`);
+    
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  };
+
   const processData = async (data: any, fileName: string) => {
     setIsProcessing(true);
     setError(null);
@@ -41,46 +62,26 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       if (json.length === 0) throw new Error("The selected file appears to be empty.");
 
       let mapping = master.mappingSchema;
+      
       // 1. Initial Auto-Mapping
       if (!mapping) {
         setProcessingStep('AI is mapping your columns...');
         try {
-          const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-          if (!apiKey || apiKey.trim() === '') {
-             if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
-          }
-
-          const ai = new GoogleGenAI({ apiKey: apiKey! });
+          const prompt = `
+            Identify column headers for: date, product, amount, category, quantity. 
+            Columns available: ${Object.keys(json[0]).join(', ')}
+            Return JSON only.
+          `;
           
-          const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
-            contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  date: { type: Type.STRING },
-                  product: { type: Type.STRING },
-                  amount: { type: Type.STRING },
-                  category: { type: Type.STRING },
-                  quantity: { type: Type.STRING },
-                },
-                required: ["date", "product", "amount"]
-              }
-            }
-          });
-          
-          const rawText = response.text || '{}';
-          const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+          const jsonText = await callGeminiDirect(prompt);
+          const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
           mapping = JSON.parse(cleanJson);
-
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
         }
       }
 
-      // 2. Fallback to Manual Mapping if essentials are missing
+      // 2. Fallback to Manual Mapping
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -140,7 +141,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         return new Date().toISOString().split('T')[0];
       };
 
-      // 1. Initial Parse (Strict Financials)
+      // 1. Initial Parse
       let parsedSales: SaleRecord[] = json
         .map((item, idx) => {
           const rawAmount = item[mapping.amount];
@@ -162,68 +163,58 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         })
         .filter(s => s.amount > 0 || (s.product !== 'Unknown' && s.product !== ''));
 
-      // 2. AI ENRICHMENT (Categorization)
+      // 2. AI ENRICHMENT (Categorization) - Using Direct Fetch
       const needsEnrichment = !mapping.category || parsedSales.some(s => s.category === 'General');
       
       if (needsEnrichment) {
         setProcessingStep('AI is categorizing your jewelry...');
         
         const uniqueProducts = [...new Set(parsedSales.map(s => s.product))];
-        const batchSize = 100;
+        const batchSize = 50; 
         const batches = [];
         for (let i = 0; i < uniqueProducts.length; i += batchSize) {
            batches.push(uniqueProducts.slice(i, i + batchSize));
         }
 
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (apiKey) {
-           const ai = new GoogleGenAI({ apiKey });
-           const enrichmentMap: Record<string, { category: string, cleanName: string }> = {};
+        const enrichmentMap: Record<string, { category: string, cleanName: string }> = {};
 
-           for (const batch of batches) {
-             try {
-                // ✅ FIX: Reverted to standard 'gemini-1.5-flash'
-                const response = await ai.models.generateContent({
-                   model: 'gemini-1.5-flash',
-                   contents: `
-                     You are a jewelry inventory assistant. 
-                     Task: Map each input to a category and a clean name.
-                     
-                     Allowed Categories: [Rings, Bracelets, Necklaces, Pendants, Earrings, Anklets, Charms, Sets, Other]
-                     
-                     Rules:
-                     1. Clean Name must remove sizes (e.g., "Size 7") or metal types (e.g., "14k") if it makes the name cleaner.
-                     2. If an item doesn't fit, use "Other".
-                     
-                     Input List: ${JSON.stringify(batch)}
-                     
-                     Return ONLY a JSON object where keys are the exact input strings.
-                     Example: { "Gold Ring Sz 6": { "category": "Rings", "cleanName": "Gold Ring" } }
-                   `,
-                   config: { responseMimeType: "application/json" }
-                });
-                
-                const rawText = response.text || '{}';
-                const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-                const batchResult = JSON.parse(cleanJson);
-                
-                Object.assign(enrichmentMap, batchResult);
-             } catch (e) {
-                console.error("Batch enrichment failed", e);
-             }
-           }
+        for (const batch of batches) {
+          try {
+             const prompt = `
+               You are a jewelry inventory assistant. 
+               Task: Map each input to a category and a clean name.
+               
+               Allowed Categories: [Rings, Bracelets, Necklaces, Pendants, Earrings, Anklets, Charms, Sets, Other]
+               
+               Rules:
+               1. Clean Name must remove sizes (e.g., "Size 7") or metal types (e.g., "14k") if it makes the name cleaner.
+               2. If an item doesn't fit, use "Other".
+               
+               Input List: ${JSON.stringify(batch)}
+               
+               Return ONLY a JSON object where keys are the exact input strings.
+               Example: { "Gold Ring Sz 6": { "category": "Rings", "cleanName": "Gold Ring" } }
+             `;
 
-           parsedSales = parsedSales.map(sale => {
-              const enriched = enrichmentMap[sale.product];
-              if (enriched) {
-                return { 
-                  ...sale, 
-                  category: enriched.category || sale.category,
-                };
-              }
-              return sale;
-           });
+             const jsonText = await callGeminiDirect(prompt);
+             const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+             const batchResult = JSON.parse(cleanJson);
+             Object.assign(enrichmentMap, batchResult);
+          } catch (e) {
+             console.error("Batch enrichment failed", e);
+          }
         }
+
+        parsedSales = parsedSales.map(sale => {
+           const enriched = enrichmentMap[sale.product];
+           if (enriched) {
+             return { 
+               ...sale, 
+               category: enriched.category || sale.category,
+             };
+           }
+           return sale;
+        });
       }
 
       if (parsedSales.length === 0) throw new Error("No data found.");
@@ -269,7 +260,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
   return (
     <div className="space-y-8 pb-20 relative">
-      {/* --- PREVIEW MODAL --- */}
       {showPreview && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4">
            <div className="bg-white rounded-[32px] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -282,7 +272,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
                     <X className="w-5 h-5 text-slate-500" />
                  </button>
               </div>
-              
               <div className="overflow-auto flex-1 p-0">
                  <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-400 font-black uppercase text-[10px] tracking-wider sticky top-0 z-10">
@@ -310,7 +299,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
                     </tbody>
                  </table>
               </div>
-
               <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-slate-50">
                  <p className="text-xs font-bold text-slate-400">* Showing last 50 entries</p>
                  {master.googleFileUrl && (
@@ -323,7 +311,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         </div>
       )}
 
-      {/* --- MAPPING MODAL --- */}
       {pendingData && manualMapping && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-xl shadow-2xl overflow-hidden">
@@ -357,7 +344,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         </div>
       )}
 
-      {/* --- HEADER --- */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Sync Sales</h1>
@@ -371,7 +357,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         </button>
       </header>
 
-      {/* --- MAIN UPLOAD AREA --- */}
       <div className={`relative min-h-[480px] rounded-[48px] border-4 border-dashed transition-all duration-500 flex flex-col items-center justify-center p-12 bg-white ${isProcessing ? 'border-indigo-100' : 'border-slate-200 hover:border-indigo-300'}`}>
         {isProcessing ? (
           <div className="text-center">
