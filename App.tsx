@@ -1,3 +1,7 @@
+console.log("Check Keys:", { 
+  google: !!import.meta.env.VITE_GOOGLE_API_KEY, 
+  gemini: !!import.meta.env.VITE_GEMINI_API_KEY 
+});
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Layout } from './components/Layout';
