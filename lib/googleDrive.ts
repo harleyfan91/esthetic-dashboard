@@ -1,4 +1,3 @@
-
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -7,18 +6,11 @@ export const SCOPES = [
   'openid'
 ].join(' ');
 
-// Define AIStudio interface to match usage and satisfy compiler requirements
-interface AIStudio {
-  hasSelectedApiKey(): Promise<boolean>;
-  openSelectKey(): Promise<void>;
-}
-
+// Simplified global window types
 declare global {
   interface Window {
     gapi: any;
     google: any;
-    // Use AIStudio type as required by the compiler to avoid redeclaration conflicts
-    readonly aistudio: AIStudio;
   }
 }
 
@@ -35,8 +27,8 @@ export class GoogleDriveService {
   }
 
   private getEffectiveApiKey(): string {
-    // Dynamically check process.env to ensure we get the key selected by the user
-    return (process.env.API_KEY || this.fallbackApiKey || '').trim();
+    // FIXED: Now checks for the Vite environment variable you set in Cloudflare
+    return (import.meta.env.VITE_GOOGLE_API_KEY || this.fallbackApiKey || '').trim();
   }
 
   private libsReady(): boolean {
@@ -98,14 +90,8 @@ export class GoogleDriveService {
     const origin = window.location.origin;
     const apiKey = this.getEffectiveApiKey();
     
-    // Safety check: The Picker requires a DeveloperKey (API Key) to run in browser.
     if (!apiKey) {
-      if (window.aistudio?.openSelectKey) {
-        await window.aistudio.openSelectKey();
-        // If we just opened the dialog, the user needs to finish that first.
-        return;
-      }
-      alert("An API Key is required to browse Google Drive.");
+      alert("A Google API Key is required. Please check your Cloudflare settings.");
       return;
     }
 
@@ -122,7 +108,7 @@ export class GoogleDriveService {
     const picker = new window.google.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(token)
-      .setDeveloperKey(apiKey) // Critical property for "An API Key must be set" error
+      .setDeveloperKey(apiKey) 
       .setOrigin(origin)
       .setCallback((data: any) => {
         if (data.action === window.google.picker.Action.PICKED) {
