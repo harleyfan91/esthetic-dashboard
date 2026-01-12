@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, CloudUpload, BarChart3, X, LogOut, User, Cloud, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, CloudUpload, BarChart3, X, LogOut, User, Cloud, RefreshCw, Database } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface LayoutProps {
@@ -54,13 +54,24 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={onSignOut}
-              className="w-full text-red-500 py-4 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
+            <div className="space-y-3">
+              {/* ✅ NEW: Clearly defined Switch/Reset Button */}
+              <button
+                onClick={onSignOut}
+                className="w-full bg-slate-50 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
+              >
+                <Database className="w-4 h-4" />
+                Switch Master File
+              </button>
+              
+              <button
+                onClick={onSignOut}
+                className="w-full text-red-400 py-4 rounded-2xl font-bold hover:bg-red-50 hover:text-red-600 transition-all flex items-center justify-center gap-2 text-sm"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}
