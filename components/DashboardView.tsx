@@ -8,7 +8,7 @@ import {
   CalendarDays, Calendar
 } from 'lucide-react';
 import { MasterRecord } from '../types';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -21,7 +21,7 @@ type TimeRange = 'all' | '7d' | '30d' | 'custom';
 
 const COLORS = ['#6366f1', '#f97316', '#059669', '#8b5cf6', '#ec4899', '#f59e0b'];
 
-// ✅ NEW: Custom Tooltip for Best Days Chart
+// Custom Tooltip for Best Days Chart
 const CustomDayTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -131,14 +131,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredData]);
 
-  // ✅ UPDATED: Busiest Days now calculates Quantity AND Revenue
   const busiestDays = useMemo(() => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    // Array of objects { revenue: 0, quantity: 0 }
     const dayStats = Array.from({ length: 7 }, () => ({ revenue: 0, quantity: 0 }));
 
     filteredData.forEach(s => {
-      // Robust Date Parsing for Day of Week
       const [y, m, d] = s.date.split('-').map(Number);
       const localDate = new Date(y, m - 1, d);
       const dayIndex = localDate.getDay();
@@ -154,7 +151,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }));
   }, [filteredData]);
 
-  // 3. AI ANALYSIS
+  // 3. AI ANALYSIS (Refined to strictly JSON)
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
@@ -180,12 +177,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Business Analysis for scope "${summary.timeSpanLabel}": ${JSON.stringify(summary)}. Output 4 brief segments separated by "---": 1. Motivational sentence (max 12 words) starting with "DRIVE: ". 2. WIN: Biggest success factor. 3. RISK: Potential weakness. 4. ACTION: Single move for growth.`,
+        contents: `Analyze: ${JSON.stringify(summary)}. 
+        Generate 4 distinct strategic insights.
+        1. 'drive': A short motivational phrase (max 10 words).
+        2. 'win': The biggest success factor in this data.
+        3. 'risk': A potential gap or risk.
+        4. 'action': One specific growth action to take.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              drive: { type: Type.STRING },
+              win: { type: Type.STRING },
+              risk: { type: Type.STRING },
+              action: { type: Type.STRING },
+            }
+          }
+        }
       });
-      const insight = response.text || "Sales trends look solid.";
-      setStrategy(insight);
+      
+      const insightJson = response.text || "{}";
+      setStrategy(insightJson);
       setLastAnalyzedRange(timeRange);
-      onSaveAnalysis(insight);
+      onSaveAnalysis(insightJson);
     } catch (err: any) {
       console.error("Analysis failed:", err);
     } finally { setIsAiLoading(false); }
@@ -193,10 +208,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
 
   useEffect(() => { getStrategicAnalysis(); }, [filteredData.length, timeRange, master.lastUpdated]);
 
-  const parsedSections = strategy ? strategy.split('---').filter(Boolean) : [];
-  const driveSentenceRaw = parsedSections.find(s => s.includes('DRIVE:')) || "";
-  const driveSentence = driveSentenceRaw.replace('DRIVE:', '').trim() || "Every sale matters. Keep building!";
-  const deepInsights = parsedSections.filter(s => !s.includes('DRIVE:'));
+  // Parsing Logic (JSON or Fallback)
+  let driveText = "Every sale matters. Keep building!";
+  let insightCards = [
+    { title: "SUCCESS", text: "Tracking sales data." },
+    { title: "GAP", text: "Not enough data yet." },
+    { title: "MOVE", text: "Keep adding records." }
+  ];
+
+  if (strategy) {
+    try {
+      // 1. Try JSON Parse (New format)
+      const parsed = JSON.parse(strategy);
+      if (parsed.drive) {
+        driveText = parsed.drive;
+        insightCards = [
+          { title: "SUCCESS", text: parsed.win },
+          { title: "GAP", text: parsed.risk },
+          { title: "MOVE", text: parsed.action }
+        ];
+      }
+    } catch (e) {
+      // 2. Fallback to string split (Legacy support)
+      const parts = strategy.split('---');
+      const d = parts.find(s => s.includes('DRIVE:'));
+      if (d) driveText = d.replace('DRIVE:', '').trim();
+      const others = parts.filter(s => !s.includes('DRIVE:'));
+      if (others.length >= 3) {
+         insightCards = [
+           { title: "SUCCESS", text: others[0] },
+           { title: "GAP", text: others[1] },
+           { title: "MOVE", text: others[2] }
+         ];
+      }
+    }
+  }
 
   const handleExportPdf = async () => {
     if (!dashboardRef.current) return;
@@ -312,18 +358,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Gemini Strategy</span>
         </div>
         <h2 className="text-3xl font-black mb-10 leading-tight">
-           {isAiLoading ? "Processing data..." : driveSentence}
+           {isAiLoading ? "Processing data..." : driveText}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-           {filteredData.length > 0 && deepInsights.map((text, i) => {
-             const titles = ["SUCCESS", "GAP", "MOVE"];
-             return (
-               <div key={i} className="bg-white/5 border border-white/5 p-6 rounded-3xl">
-                 <p className="text-[9px] font-black tracking-widest uppercase text-slate-500 mb-2">{titles[i]}</p>
-                 <p className="text-sm text-slate-300 leading-relaxed">{text.split(':').slice(1).join(':').trim()}</p>
-               </div>
-             )
-           })}
+           {filteredData.length > 0 && insightCards.map((card, i) => (
+             <div key={i} className="bg-white/5 border border-white/5 p-6 rounded-3xl">
+               <p className="text-[9px] font-black tracking-widest uppercase text-slate-500 mb-2">{card.title}</p>
+               <p className="text-sm text-slate-300 leading-relaxed">{card.text}</p>
+             </div>
+           ))}
         </div>
       </div>
 
@@ -342,13 +385,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
            </div>
         </div>
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
-           {/* ✅ UPDATED Title */}
            <h3 className="text-xl font-black mb-8 flex items-center gap-3"><CalendarDays className="w-5 h-5 text-emerald-500" /> Best Days of the Week</h3>
            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busiestDays}>
                   <XAxis dataKey="name" tick={{fontSize: 9}} />
-                  {/* ✅ UPDATED Tooltip */}
                   <Tooltip content={<CustomDayTooltip />} cursor={{fill: '#f1f5f9'}} />
                   <Bar dataKey="quantity" fill="#059669" radius={[10, 10, 0, 0]} />
                 </BarChart>
