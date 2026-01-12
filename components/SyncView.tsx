@@ -18,8 +18,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   const [processingStep, setProcessingStep] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<{ success: boolean; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
-  // States for Manual Mapping and Preview Modal
   const [pendingData, setPendingData] = useState<{ json: any[], fileName: string } | null>(null);
   const [manualMapping, setManualMapping] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -43,8 +41,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       if (json.length === 0) throw new Error("The selected file appears to be empty.");
 
       let mapping = master.mappingSchema;
-      
-      // AI Logic
       if (!mapping) {
         setProcessingStep('AI is mapping your columns...');
         try {
@@ -96,20 +92,47 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   const finalizeProcess = (json: any[], mapping: any, fileName: string) => {
     try {
       setProcessingStep('Building master records...');
+      
+      // ✅ REFINED DATE PARSER FOR INCOMPLETE DATES
       const parseDate = (val: any) => {
         if (!val) return new Date().toLocaleDateString("en-CA");
+
         let dateObj: Date | null = null;
+
+        // 1. Excel Serial Date
         if (typeof val === 'number') {
-          if (val > 25569) dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
-        } else {
-          dateObj = new Date(val);
+           if (val > 25569) dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
         }
+        // 2. Strings
+        else {
+           let dateStr = String(val).trim();
+           // Regex: Check if there is a 4 digit year (e.g. 2026 or 1999)
+           // \b matches word boundaries
+           const hasYear = /\b(19|20)\d{2}\b/.test(dateStr);
+           
+           if (!hasYear) {
+               // If user provides "Jan 02" or "01/05", append current year
+               const currentYear = new Date().getFullYear();
+               dateStr = `${dateStr} ${currentYear}`;
+           }
+           
+           dateObj = new Date(dateStr);
+        }
+
         if (dateObj && !isNaN(dateObj.getTime())) {
-          let year = dateObj.getUTCFullYear();
-          if (year >= 1900 && year < 2000) dateObj.setFullYear(year + 100);
-          return dateObj.toISOString().split('T')[0];
+          // Format strictly YYYY-MM-DD using local time parts to avoid UTC shift
+          const year = dateObj.getFullYear();
+          const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const day = String(dateObj.getDate()).padStart(2, '0');
+          
+          // Legacy Fix: If year somehow still ended up as 19xx (e.g. Excel parsed 1900), bump it
+          if (year < 2000) {
+              return `${year + 100}-${month}-${day}`;
+          }
+          return `${year}-${month}-${day}`;
         }
-        return new Date().toISOString().split('T')[0];
+        
+        return new Date().toLocaleDateString("en-CA");
       };
 
       const newSales: SaleRecord[] = json
@@ -258,7 +281,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         </div>
       )}
 
-      {/* --- HEADER WITH PREVIEW BUTTON --- */}
+      {/* --- HEADER --- */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Sync Sales</h1>
