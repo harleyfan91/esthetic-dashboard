@@ -22,12 +22,16 @@ const App: React.FC = () => {
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [cloudSyncing, setCloudSyncing] = useState(false);
 
+// ✅ THE FINAL REVISION
 const googleService = useMemo(() => {
-  // We need BOTH the Gemini key and the Google API Key
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
   const googleKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
   
-  // Note: We are passing the googleKey here so the Picker can see it
+  // 1. We MUST set the Gemini key in the global process/window for the library
+  // This is the "Magic Trick" that stops that specific Gemini error
+  (window as any).process = { env: { API_KEY: geminiKey } };
+
+  // 2. Pass the Google key to the service for the Picker/Drive logic
   return new GoogleDriveService(GOOGLE_CLIENT_ID, googleKey);
 }, []);
 
