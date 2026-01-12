@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { 
   Upload, CheckCircle2, Loader2, AlertCircle, Cloud
@@ -31,6 +30,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
     setProcessingStep('Reading report content...');
     
     try {
+      // 1. DUPLICATION CHECK
+      // If we have seen this file name before, stop immediately.
+      if (master.syncedFiles && master.syncedFiles.includes(fileName)) {
+        throw new Error(`File "${fileName}" has already been synced.`);
+      }
+
       const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
       const sheetName = workbook.SheetNames[0];
       const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" }) as any[];
@@ -53,6 +58,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           const ai = new GoogleGenAI({ apiKey: apiKey! });
           const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
+            // This is where AI ensures the data snaps to our schema
             contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
             config: {
               responseMimeType: "application/json",
@@ -76,13 +82,14 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           }
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
+          // Fallback gracefully if AI fails
           if (apiErr.message?.includes('API Key must be set')) {
              if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
           }
-          throw apiErr;
         }
       }
 
+      // If AI failed or Mapping is still missing, go to Manual Mode
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -152,11 +159,11 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       }
       if (!token) throw new Error("Connection failed.");
       
-      // The openPicker now handles Developer Key retrieval internally
       googleService.openPicker(token, async (file) => {
         setIsProcessing(true);
         setProcessingStep(`Importing ${file.name}...`);
         try {
+          // Drive Picker doesn't give file content immediately, so we check duplicates inside processData
           const blob = await googleService.downloadFile(file.id, file.mimeType);
           const reader = new FileReader();
           reader.onload = (e) => processData(e.target?.result, file.name);
