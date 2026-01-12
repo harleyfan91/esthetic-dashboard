@@ -20,7 +20,11 @@ const App: React.FC = () => {
 
   // Note: Using process.env.API_KEY directly in the service initialization.
   // It is populated after the user selects a key via window.aistudio.openSelectKey()
-  const googleService = useMemo(() => new GoogleDriveService(GOOGLE_CLIENT_ID, process.env.API_KEY || ''), [process.env.API_KEY]);
+  const googleService = useMemo(() => {
+  // This tells the app to look for a variable named VITE_GEMINI_API_KEY
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    return new GoogleDriveService(GOOGLE_CLIENT_ID, apiKey);
+  }, []);
 
   useEffect(() => {
     const savedMaster = localStorage.getItem('maker_master_record');
