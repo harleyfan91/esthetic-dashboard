@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { 
-  Upload, CheckCircle2, Loader2, AlertCircle, Cloud
+  Upload, CheckCircle2, Loader2, AlertCircle, Eye, ExternalLink, X
 } from 'lucide-react';
 import { MasterRecord, SaleRecord } from '../types';
 import { GoogleDriveService } from '../lib/googleDrive';
@@ -19,8 +19,10 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   const [syncStatus, setSyncStatus] = useState<{ success: boolean; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  // States for Manual Mapping and Preview Modal
   const [pendingData, setPendingData] = useState<{ json: any[], fileName: string } | null>(null);
   const [manualMapping, setManualMapping] = useState<any>(null);
+  const [showPreview, setShowPreview] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,7 +32,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
     setProcessingStep('Reading report content...');
     
     try {
-      // Duplication Check
       if (master.syncedFiles && master.syncedFiles.includes(fileName)) {
         throw new Error(`File "${fileName}" has already been synced.`);
       }
@@ -43,16 +44,13 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
       let mapping = master.mappingSchema;
       
-      // 1. AI Auto-Mapping Logic
+      // AI Logic
       if (!mapping) {
         setProcessingStep('AI is mapping your columns...');
         try {
           const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
           if (!apiKey || apiKey.trim() === '') {
-             if (window.aistudio?.openSelectKey) {
-               await window.aistudio.openSelectKey();
-               throw new Error("Gemini connection pending. Please try again after selecting your key.");
-             }
+             if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
           }
 
           const ai = new GoogleGenAI({ apiKey: apiKey! });
@@ -74,18 +72,13 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
               }
             }
           });
-          
           const text = response.text;
           if (text) mapping = JSON.parse(text);
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
-          if (apiErr.message?.includes('API Key must be set')) {
-             if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
-          }
         }
       }
 
-      // 2. Fallback to Manual Mapping
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -103,40 +96,19 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   const finalizeProcess = (json: any[], mapping: any, fileName: string) => {
     try {
       setProcessingStep('Building master records...');
-      
-      // ✅ REFINED DATE PARSER WITH CENTURY FIX
       const parseDate = (val: any) => {
         if (!val) return new Date().toLocaleDateString("en-CA");
-
         let dateObj: Date | null = null;
-
-        // A. Handle Excel Serial Numbers
         if (typeof val === 'number') {
-          if (val > 25569) { // > 1970
-            // Convert to JS Date (UTC)
-            dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
-          }
-        } 
-        // B. Handle Strings / Existing Date Objects
-        else {
+          if (val > 25569) dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
+        } else {
           dateObj = new Date(val);
         }
-
-        // C. Validate and Fix Year
         if (dateObj && !isNaN(dateObj.getTime())) {
-          let year = dateObj.getUTCFullYear(); // Use UTC to avoid timezone shifts
-          
-          // FIX: If year is interpreted as 19xx (e.g. 1926 instead of 2026), fix it.
-          // We assume business data is likely after year 2000.
-          if (year >= 1900 && year < 2000) {
-            dateObj.setFullYear(year + 100);
-          }
-
-          // Return strictly YYYY-MM-DD
+          let year = dateObj.getUTCFullYear();
+          if (year >= 1900 && year < 2000) dateObj.setFullYear(year + 100);
           return dateObj.toISOString().split('T')[0];
         }
-
-        // Fallback to today if parsing completely failed
         return new Date().toISOString().split('T')[0];
       };
 
@@ -177,11 +149,9 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       let token = googleService.getStoredToken();
       if (!token) {
         setIsProcessing(true);
-        setProcessingStep('Connecting...');
         token = await googleService.authenticate();
         setIsProcessing(false);
       }
-      
       googleService.openPicker(token, async (file) => {
         setIsProcessing(true);
         setProcessingStep(`Importing ${file.name}...`);
@@ -202,8 +172,62 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   };
 
   return (
-    <div className="space-y-8 pb-20">
-      {/* Manual Mapping Modal */}
+    <div className="space-y-8 pb-20 relative">
+      {/* --- PREVIEW MODAL --- */}
+      {showPreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[32px] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                 <div>
+                    <h3 className="text-xl font-black text-slate-900">Database Preview</h3>
+                    <p className="text-sm text-slate-500 font-medium">Viewing {master.data.length} records</p>
+                 </div>
+                 <button onClick={() => setShowPreview(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-200 transition-colors">
+                    <X className="w-5 h-5 text-slate-500" />
+                 </button>
+              </div>
+              
+              <div className="overflow-auto flex-1 p-0">
+                 <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-400 font-black uppercase text-[10px] tracking-wider sticky top-0 z-10">
+                       <tr>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">Product</th>
+                          <th className="px-6 py-4">Category</th>
+                          <th className="px-6 py-4">Qty</th>
+                          <th className="px-6 py-4 text-right">Amount</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                       {master.data.slice().reverse().slice(0, 50).map((row, i) => (
+                          <tr key={i} className="hover:bg-slate-50/50">
+                             <td className="px-6 py-3 font-bold text-slate-600 whitespace-nowrap">{row.date}</td>
+                             <td className="px-6 py-3 font-medium text-slate-900">{row.product}</td>
+                             <td className="px-6 py-3 text-slate-500">{row.category}</td>
+                             <td className="px-6 py-3 text-slate-500">{row.quantity}</td>
+                             <td className="px-6 py-3 font-bold text-slate-900 text-right">${row.amount.toFixed(2)}</td>
+                          </tr>
+                       ))}
+                       {master.data.length === 0 && (
+                          <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">No records found.</td></tr>
+                       )}
+                    </tbody>
+                 </table>
+              </div>
+
+              <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-slate-50">
+                 <p className="text-xs font-bold text-slate-400">* Showing last 50 entries</p>
+                 {master.googleFileUrl && (
+                    <a href={master.googleFileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-indigo-600 font-black text-sm hover:underline">
+                       Open in Google Drive <ExternalLink className="w-4 h-4" />
+                    </a>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* --- MAPPING MODAL --- */}
       {pendingData && manualMapping && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-xl shadow-2xl overflow-hidden">
@@ -234,11 +258,21 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         </div>
       )}
 
-      <header>
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight">Sync Sales</h1>
-        <p className="text-slate-500 font-medium">Update your business history with Gemini Flash.</p>
+      {/* --- HEADER WITH PREVIEW BUTTON --- */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div>
+           <h1 className="text-4xl font-black text-slate-900 tracking-tight">Sync Sales</h1>
+           <p className="text-slate-500 font-medium">Update your business history with Gemini Flash.</p>
+        </div>
+        <button 
+           onClick={() => setShowPreview(true)}
+           className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 text-sm hover:border-indigo-300 hover:text-indigo-600 transition-all"
+        >
+           <Eye className="w-4 h-4" /> Preview Database
+        </button>
       </header>
 
+      {/* --- MAIN UPLOAD AREA --- */}
       <div className={`relative min-h-[480px] rounded-[48px] border-4 border-dashed transition-all duration-500 flex flex-col items-center justify-center p-12 bg-white ${isProcessing ? 'border-indigo-100' : 'border-slate-200 hover:border-indigo-300'}`}>
         {isProcessing ? (
           <div className="text-center">
