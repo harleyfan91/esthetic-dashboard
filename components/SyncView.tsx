@@ -30,8 +30,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
     setProcessingStep('Reading report content...');
     
     try {
-      // 1. DUPLICATION CHECK
-      // If we have seen this file name before, stop immediately.
       if (master.syncedFiles && master.syncedFiles.includes(fileName)) {
         throw new Error(`File "${fileName}" has already been synced.`);
       }
@@ -58,7 +56,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           const ai = new GoogleGenAI({ apiKey: apiKey! });
           const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            // This is where AI ensures the data snaps to our schema
             contents: `Identify column headers for: date, product, amount, category, quantity. Columns available: ${Object.keys(json[0]).join(', ')}`,
             config: {
               responseMimeType: "application/json",
@@ -82,14 +79,12 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           }
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
-          // Fallback gracefully if AI fails
           if (apiErr.message?.includes('API Key must be set')) {
              if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
           }
         }
       }
 
-      // If AI failed or Mapping is still missing, go to Manual Mode
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -107,13 +102,46 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
   const finalizeProcess = (json: any[], mapping: any, fileName: string) => {
     try {
       setProcessingStep('Building master records...');
+      
+      // ✅ IMPROVED DATE PARSING LOGIC
       const parseDate = (val: any) => {
-        if (!val) return new Date().toISOString().split('T')[0];
-        let d = new Date(val);
-        if (typeof val === 'number' && val > 25569) {
-          d = new Date(Math.round((val - 25569) * 86400 * 1000));
+        if (!val) return new Date().toLocaleDateString("en-CA"); // Return local today
+
+        let dateObj: Date | null = null;
+
+        // 1. If it's already a JS Date (from XLSX cellDates: true)
+        if (val instanceof Date) {
+          dateObj = val;
+        } 
+        // 2. If it's a Number (Excel Serial Date)
+        else if (typeof val === 'number') {
+          // Logic: 25569 is Jan 1, 1970. 
+          // If the number is smaller than 25569, it's likely NOT a date (e.g. Quantity 5, ID 100).
+          // We treat it as invalid to avoid "1970" errors.
+          if (val > 25569) {
+            // Convert Excel serial to JS Date (UTC)
+            dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
+          } else {
+            // It's a small number, probably mapped wrong. Return Today or fallback.
+            return new Date().toLocaleDateString("en-CA");
+          }
         }
-        return isNaN(d.getTime()) ? new Date().toISOString().split('T')[0] : d.toISOString().split('T')[0];
+        // 3. If it's a String
+        else {
+          const d = new Date(val);
+          // Check if valid
+          if (!isNaN(d.getTime())) {
+             dateObj = d;
+          }
+        }
+
+        // Final check and formatting
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          // "en-CA" formats as YYYY-MM-DD in LOCAL time, preventing the "day before" UTC bug
+          return dateObj.toLocaleDateString("en-CA");
+        }
+
+        return new Date().toLocaleDateString("en-CA");
       };
 
       const newSales: SaleRecord[] = json
@@ -163,7 +191,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         setIsProcessing(true);
         setProcessingStep(`Importing ${file.name}...`);
         try {
-          // Drive Picker doesn't give file content immediately, so we check duplicates inside processData
           const blob = await googleService.downloadFile(file.id, file.mimeType);
           const reader = new FileReader();
           reader.onload = (e) => processData(e.target?.result, file.name);
