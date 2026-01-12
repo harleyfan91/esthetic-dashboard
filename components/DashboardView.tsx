@@ -213,8 +213,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         timeSpanLabel: timeRange 
       };
       
+      // ✅ FIX: Reverted to standard 'gemini-1.5-flash'
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-1.5-flash',
         contents: `Analyze this data: ${JSON.stringify(summary)}. 
         Return a JSON object with these 4 keys (strings):
         "drive": A 5-word motivational phrase.
@@ -235,7 +236,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         }
       });
       
-      // ✅ FIX: Strip Markdown Code Blocks here too
+      // ✅ FIX: Strip Markdown Code Blocks
       const rawText = response.text || '{}';
       const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       
@@ -361,7 +362,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       {/* KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <KPIContainer label="Revenue" value={`$${stats.totalRevenue.toLocaleString()}`}>
-          <div className="h-48 mt-6">
+          {/* ✅ FIX: Added w-full and h-full with explicit style to fix width(-1) error */}
+          <div className="h-48 mt-6 w-full" style={{ width: '100%', height: '192px' }}>
              {stats.categoryData.length > 0 && (
                <ResponsiveContainer width="100%" height="100%">
                  <PieChart>
@@ -423,7 +425,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
            <h3 className="text-xl font-black mb-8 flex items-center gap-3"><TrendingUp className="w-5 h-5 text-orange-500" /> Revenue</h3>
-           <div className="h-64">
+           {/* ✅ FIX: Added explicit style container */}
+           <div className="h-64 w-full" style={{ width: '100%', height: '256px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={revenueTrend}>
                   <XAxis dataKey="date" tick={{fontSize: 9}} tickFormatter={(val) => val.slice(5)} />
@@ -435,7 +438,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         </div>
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
            <h3 className="text-xl font-black mb-8 flex items-center gap-3"><CalendarDays className="w-5 h-5 text-emerald-500" /> Best Days of the Week</h3>
-           <div className="h-64">
+           {/* ✅ FIX: Added explicit style container */}
+           <div className="h-64 w-full" style={{ width: '100%', height: '256px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busiestDays}>
                   <XAxis dataKey="name" tick={{fontSize: 9}} />
