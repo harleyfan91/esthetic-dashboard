@@ -6,7 +6,6 @@ export const SCOPES = [
   'openid'
 ].join(' ');
 
-// Simplified global window types
 declare global {
   interface Window {
     gapi: any;
@@ -27,7 +26,6 @@ export class GoogleDriveService {
   }
 
   private getEffectiveApiKey(): string {
-    // FIXED: Now checks for the Vite environment variable you set in Cloudflare
     return (import.meta.env.VITE_GOOGLE_API_KEY || this.fallbackApiKey || '').trim();
   }
 
@@ -121,11 +119,12 @@ export class GoogleDriveService {
     picker.setVisible(true);
   }
 
+  // ✅ UPDATED: Requests 'webViewLink' so we can open the file in a new tab
   async findFileByName(name: string) {
     if (!this.accessToken) return null;
     const q = encodeURIComponent(`name = '${name}' and trashed = false`);
     try {
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink)`, {
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
       const data = await response.json();
@@ -133,23 +132,48 @@ export class GoogleDriveService {
     } catch (e) { return null; }
   }
 
+  // ✅ UPDATED: Returns the file metadata (including link) after save
   async saveJsonToCloud(name: string, content: any) {
-    if (!this.accessToken) return;
+    if (!this.accessToken) return null;
     try {
       const existingFile = await this.findFileByName(name);
       const metadata = { name, mimeType: 'application/json' };
       const jsonString = JSON.stringify(content);
+      
       const boundary = '-------314159265358979323846';
       const delimiter = "\r\n--" + boundary + "\r\n";
       const close_delim = "\r\n--" + boundary + "--";
-      const multipartRequestBody = delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) + delimiter + 'Content-Type: application/json\r\n\r\n' + jsonString + close_delim;
-      const url = existingFile ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-      await fetch(url, {
+      
+      const multipartRequestBody = 
+        delimiter + 
+        'Content-Type: application/json\r\n\r\n' + 
+        JSON.stringify(metadata) + 
+        delimiter + 
+        'Content-Type: application/json\r\n\r\n' + 
+        jsonString + 
+        close_delim;
+
+      // Add 'fields' param to get the webViewLink back
+      const baseUrl = existingFile 
+        ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}` 
+        : `https://www.googleapis.com/upload/drive/v3/files`;
+        
+      const url = `${baseUrl}?uploadType=multipart&fields=id,name,webViewLink`;
+
+      const response = await fetch(url, {
         method: existingFile ? 'PATCH' : 'POST',
-        headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'multipart/related; boundary=' + boundary },
+        headers: { 
+          Authorization: `Bearer ${this.accessToken}`, 
+          'Content-Type': 'multipart/related; boundary=' + boundary 
+        },
         body: multipartRequestBody
       });
-    } catch (e) { console.error("Cloud save failed", e); }
+      
+      return await response.json(); // Returns file object with webViewLink
+    } catch (e) { 
+      console.error("Cloud save failed", e); 
+      return null;
+    }
   }
 
   async downloadFile(fileId: string, mimeType?: string): Promise<any> {
