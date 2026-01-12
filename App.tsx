@@ -22,18 +22,12 @@ const App: React.FC = () => {
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [cloudSyncing, setCloudSyncing] = useState(false);
 
-// ✅ THE FINAL REVISION
-const googleService = useMemo(() => {
-  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-  const googleKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
-  
-  // 1. We MUST set the Gemini key in the global process/window for the library
-  // This is the "Magic Trick" that stops that specific Gemini error
-  (window as any).process = { env: { API_KEY: geminiKey } };
-
-  // 2. Pass the Google key to the service for the Picker/Drive logic
-  return new GoogleDriveService(GOOGLE_CLIENT_ID, googleKey);
-}, []);
+  const googleService = useMemo(() => {
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    const googleKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
+    (window as any).process = { env: { API_KEY: geminiKey } };
+    return new GoogleDriveService(GOOGLE_CLIENT_ID, googleKey);
+  }, []);
 
   useEffect(() => {
     const savedMaster = localStorage.getItem('maker_master_record');
@@ -46,16 +40,23 @@ const googleService = useMemo(() => {
       }
     }
     setIsLoaded(true);
-
     googleService.initGis().catch(err => console.warn("Background cloud init pending:", err));
   }, [googleService]);
 
+  // ✅ UPDATED: Captures 'webViewLink' from cloud save response
   useEffect(() => {
     if (master && googleUser && googleService.getStoredToken()) {
       const syncToCloud = async () => {
         setCloudSyncing(true);
         try {
-          await googleService.saveJsonToCloud(MASTER_FILE_NAME, master);
+          const fileMeta = await googleService.saveJsonToCloud(MASTER_FILE_NAME, master);
+          
+          // If we got a link back and we don't have it yet, update state
+          if (fileMeta?.webViewLink && master.googleFileUrl !== fileMeta.webViewLink) {
+             const updated = { ...master, googleFileUrl: fileMeta.webViewLink };
+             setMaster(updated);
+             localStorage.setItem('maker_master_record', JSON.stringify(updated));
+          }
         } catch (e) {
           console.error("Cloud Sync Failed", e);
         } finally {
