@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Database, ArrowRight, Loader2, Cloud, Sparkles, History, ShieldCheck } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Database, ArrowRight, Loader2, Cloud, Sparkles, History, Upload } from 'lucide-react';
 import { GoogleDriveService } from '../lib/googleDrive';
 import { MasterRecord } from '../types';
 
@@ -11,12 +11,13 @@ interface SetupWizardProps {
 
 export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleService, onAuthenticated }) => {
   const [step, setStep] = useState(1);
-  // Removed the "hasApiKey" state that was causing the lock screen
   const [fileName, setFileName] = useState('Business Sales History');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [foundCloudRecord, setFoundCloudRecord] = useState<MasterRecord | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const MASTER_FILE_NAME = 'Esthetic_Master_Record.json';
 
@@ -54,8 +55,25 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleServ
     }
   };
 
-  // The "if (!hasApiKey)" block that showed the button has been removed.
-  // The wizard now starts directly at the Google Login step.
+  const handleLocalUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.id && json.data) {
+          onComplete(json);
+        } else {
+          setError("Invalid Master Record file.");
+        }
+      } catch (err) {
+        setError("Could not parse file.");
+      }
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="max-w-xl mx-auto mt-20 text-center px-4 pb-20">
@@ -78,8 +96,23 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, googleServ
               {isAuthenticating ? <Loader2 className="w-6 h-6 animate-spin" /> : "Sign in with Google"}
               {!isAuthenticating && <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />}
             </button>
+
+            {/* Added: Option to upload local backup */}
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-100"></span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-400 font-bold tracking-widest">Or</span></div>
+            </div>
+
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full bg-white border-2 border-slate-100 text-slate-400 font-bold py-4 rounded-[32px] hover:border-indigo-100 hover:text-indigo-500 transition-all flex items-center justify-center gap-2"
+            >
+              <Upload className="w-4 h-4" /> Upload Local Master File
+            </button>
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleLocalUpload} />
+
             {error && (
-              <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
+              <div className="p-4 bg-red-50 rounded-2xl border border-red-100 mt-4">
                 <p className="text-red-500 font-bold text-xs">{error}</p>
               </div>
             )}
