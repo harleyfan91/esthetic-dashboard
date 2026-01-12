@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { 
-  Upload, CheckCircle2, Loader2, AlertCircle, Eye, ExternalLink, X
+  Upload, CheckCircle2, Loader2, AlertCircle, Eye, ExternalLink, X, Sparkles 
 } from 'lucide-react';
 import { MasterRecord, SaleRecord } from '../types';
 import { GoogleDriveService } from '../lib/googleDrive';
@@ -41,6 +41,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       if (json.length === 0) throw new Error("The selected file appears to be empty.");
 
       let mapping = master.mappingSchema;
+      // 1. Initial Auto-Mapping
       if (!mapping) {
         setProcessingStep('AI is mapping your columns...');
         try {
@@ -75,6 +76,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         }
       }
 
+      // 2. Fallback to Manual Mapping if essentials are missing
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -82,20 +84,19 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         return;
       }
 
-      finalizeProcess(json, mapping, fileName);
+      await finalizeProcess(json, mapping, fileName);
     } catch (err: any) {
       setError(err.message || "Mapping failed.");
       setIsProcessing(false);
     }
   };
 
-  const finalizeProcess = (json: any[], mapping: any, fileName: string) => {
+  const finalizeProcess = async (json: any[], mapping: any, fileName: string) => {
     try {
       setProcessingStep('Building master records...');
       
       const parseDate = (val: any) => {
         if (!val) return new Date().toLocaleDateString("en-CA");
-
         if (typeof val === 'number') {
            if (val > 25569) {
              const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
@@ -105,11 +106,8 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
              return `${y}-${m}-${d}`;
            }
         }
-
         const str = String(val).trim();
         const currentYear = new Date().getFullYear();
-
-        // Regex for "Jan 02" format
         const monthDayRegex = /^([A-Za-z]{3})[\s-./]+(\d{1,2})$/i;
         const match = str.match(monthDayRegex);
 
@@ -119,55 +117,116 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           };
           const mStr = match[1].toLowerCase();
           const dNum = parseInt(match[2]);
-
           if (months[mStr] !== undefined) {
              const d = new Date(currentYear, months[mStr], dNum, 12, 0, 0);
              return d.toISOString().split('T')[0];
           }
         }
-
+        
         let dateToParse = str;
-        if (!/\d{4}/.test(str)) {
-           dateToParse = `${str} ${currentYear}`;
-        }
-        
+        if (!/\d{4}/.test(str)) dateToParse = `${str} ${currentYear}`;
         const d = new Date(dateToParse);
-        
         if (!isNaN(d.getTime())) {
-          if (d.getFullYear() < 2010) {
-            d.setFullYear(currentYear);
-          }
+          if (d.getFullYear() < 2010) d.setFullYear(currentYear);
           const y = d.getFullYear();
           const m = String(d.getMonth() + 1).padStart(2, '0');
           const day = String(d.getDate()).padStart(2, '0');
           return `${y}-${m}-${day}`;
         }
-
         return new Date().toISOString().split('T')[0];
       };
 
-      const newSales: SaleRecord[] = json
+      // 1. Initial Parse (Strict Financials)
+      let parsedSales: SaleRecord[] = json
         .map((item, idx) => {
           const rawAmount = item[mapping.amount];
           const cleanAmount = typeof rawAmount === 'string' 
             ? parseFloat(rawAmount.replace(/[^0-9.-]+/g, "")) 
             : parseFloat(rawAmount || 0);
+          
+          const rawProduct = String(item[mapping.product] || 'Unknown');
+
+          // If mapping.category is empty string, we use "General" temporarily
+          // If mapping.category is set, we use the value from the file
+          const rawCategory = mapping.category ? String(item[mapping.category] || 'General') : 'General';
 
           return {
             id: `${fileName}-${idx}-${Date.now()}`,
             date: parseDate(item[mapping.date]),
-            product: String(item[mapping.product] || 'Unknown'),
-            category: String(item[mapping.category] || 'General'),
+            product: rawProduct,
+            category: rawCategory,
             amount: isNaN(cleanAmount) ? 0 : cleanAmount,
             quantity: parseInt(item[mapping.quantity]) || 1,
           };
         })
         .filter(s => s.amount > 0 || (s.product !== 'Unknown' && s.product !== ''));
 
-      if (newSales.length === 0) throw new Error("No data found.");
+      // 2. AI ENRICHMENT (Categorization)
+      // Run this if Category column was blank OR if the data looks generic ("General")
+      const needsEnrichment = !mapping.category || parsedSales.some(s => s.category === 'General');
+      
+      if (needsEnrichment) {
+        setProcessingStep('AI is categorizing your jewelry...');
+        
+        const uniqueProducts = [...new Set(parsedSales.map(s => s.product))];
+        // Batch in groups of 50 to respect token limits if massive file
+        const batchSize = 100;
+        const batches = [];
+        for (let i = 0; i < uniqueProducts.length; i += batchSize) {
+           batches.push(uniqueProducts.slice(i, i + batchSize));
+        }
 
-      const addedCount = onSync(newSales, mapping, fileName);
-      setSyncStatus({ success: true, count: addedCount || newSales.length });
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (apiKey) {
+           const ai = new GoogleGenAI({ apiKey });
+           const enrichmentMap: Record<string, { category: string, cleanName: string }> = {};
+
+           for (const batch of batches) {
+             try {
+                const response = await ai.models.generateContent({
+                   model: 'gemini-3-flash-preview',
+                   contents: `
+                     You are a jewelry inventory assistant. 
+                     Input: List of product strings.
+                     Task:
+                     1. Identify the Jewelry Type (Rings, Bracelets, Necklaces, Pendants, Earrings, Anklets, Charms, Sets, or Other).
+                     2. Create a "Clean Name" (remove internal codes like "SZ 6" or "Gold Filled").
+                     
+                     Input List: ${JSON.stringify(batch)}
+                     
+                     Return ONLY a JSON object where keys are the exact input strings.
+                     Example: { "Gold Ring Sz 6": { "category": "Rings", "cleanName": "Gold Ring" } }
+                   `,
+                   config: { responseMimeType: "application/json" }
+                });
+                
+                const batchResult = JSON.parse(response.text || '{}');
+                Object.assign(enrichmentMap, batchResult);
+             } catch (e) {
+                console.error("Batch enrichment failed", e);
+             }
+           }
+
+           // Apply AI results to the sales data
+           parsedSales = parsedSales.map(sale => {
+              const enriched = enrichmentMap[sale.product];
+              if (enriched) {
+                return { 
+                  ...sale, 
+                  category: enriched.category || sale.category,
+                  // Optional: You can overwrite product with enriched.cleanName if you want cleaner lists
+                  // product: enriched.cleanName || sale.product 
+                };
+              }
+              return sale;
+           });
+        }
+      }
+
+      if (parsedSales.length === 0) throw new Error("No data found.");
+
+      const addedCount = onSync(parsedSales, mapping, fileName);
+      setSyncStatus({ success: true, count: addedCount || parsedSales.length });
       setPendingData(null);
     } catch (err: any) {
       setError(err.message || "Sync failed.");
@@ -272,13 +331,16 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
             <div className="p-8 space-y-4 max-h-[50vh] overflow-y-auto">
                {['date', 'product', 'amount', 'category', 'quantity'].map((field) => (
                  <div key={field} className="space-y-1">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{field} *</label>
+                   <div className="flex justify-between">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{field} {field !== 'category' && '*'}</label>
+                      {field === 'category' && <span className="text-[10px] font-bold text-indigo-500 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Auto-Fill</span>}
+                   </div>
                    <select 
                     value={manualMapping[field]} 
                     onChange={(e) => setManualMapping({...manualMapping, [field]: e.target.value})}
                     className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold"
                    >
-                     <option value="">-- Choose Column --</option>
+                     <option value="">{field === 'category' ? '-- Auto-Detect with AI --' : '-- Choose Column --'}</option>
                      {Object.keys(pendingData.json[0]).map(col => <option key={col} value={col}>{col}</option>)}
                    </select>
                  </div>
