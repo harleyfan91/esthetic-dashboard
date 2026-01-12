@@ -42,7 +42,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         setProcessingStep('AI is mapping your columns...');
         
         try {
-          const apiKey = process.env.API_KEY;
+          const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
           if (!apiKey || apiKey.trim() === '') {
              if (window.aistudio?.openSelectKey) {
                await window.aistudio.openSelectKey();
