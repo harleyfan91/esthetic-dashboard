@@ -9,11 +9,12 @@ interface LayoutProps {
   masterName?: string;
   googleUser?: any;
   onSignOut?: () => void;
+  onSwitchFile?: () => void; // ✅ Added Prop
   cloudSyncing?: boolean;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ 
-  children, currentView, setView, masterName, googleUser, onSignOut, cloudSyncing 
+  children, currentView, setView, masterName, googleUser, onSignOut, onSwitchFile, cloudSyncing 
 }) => {
   const [showAccount, setShowAccount] = useState(false);
 
@@ -55,9 +56,9 @@ export const Layout: React.FC<LayoutProps> = ({
             </div>
 
             <div className="space-y-3">
-              {/* ✅ NEW: Clearly defined Switch/Reset Button */}
+              {/* ✅ CORRECTED: Calls onSwitchFile instead of onSignOut */}
               <button
-                onClick={onSignOut}
+                onClick={onSwitchFile}
                 className="w-full bg-slate-50 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
               >
                 <Database className="w-4 h-4" />
