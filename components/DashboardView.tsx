@@ -214,7 +214,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       };
       
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-1.5-flash-001',
         contents: `Analyze this data: ${JSON.stringify(summary)}. 
         Return a JSON object with these 4 keys (strings):
         "drive": A 5-word motivational phrase.
