@@ -21,6 +21,29 @@ type TimeRange = 'all' | '7d' | '30d' | 'custom';
 
 const COLORS = ['#6366f1', '#f97316', '#059669', '#8b5cf6', '#ec4899', '#f59e0b'];
 
+// ✅ NEW: Custom Tooltip for Best Days Chart
+const CustomDayTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-800 animate-in zoom-in duration-200 min-w-[140px]">
+        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2">{label}</p>
+        <div className="space-y-1">
+           <div className="flex justify-between gap-4 text-xs font-medium">
+             <span className="text-slate-400">Quantity:</span>
+             <span className="text-white font-bold">{data.quantity}</span>
+           </div>
+           <div className="flex justify-between gap-4 text-xs font-medium">
+             <span className="text-slate-400">Revenue:</span>
+             <span className="text-white font-bold">${data.revenue.toLocaleString()}</span>
+           </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnalysis }) => {
   const [strategy, setStrategy] = useState<string | null>(master.lastStrategicInsight || null);
   const [lastAnalyzedRange, setLastAnalyzedRange] = useState<TimeRange | null>(null);
@@ -28,7 +51,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
   const [isExporting, setIsExporting] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   
-  // ✅ ADDED: Date Inputs for Custom Range
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
   
@@ -39,7 +61,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     if (timeRange === 'all') return master.data;
 
     const now = new Date();
-    // Normalize "now" to end of day to include today's sales
     now.setHours(23, 59, 59, 999);
 
     let cutoff: Date | null = null;
@@ -61,32 +82,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }
 
     return master.data.filter(s => {
-      // String comparison (YYYY-MM-DD) works reliably for dates
       if (timeRange === 'custom') {
           return s.date >= startDateStr && s.date <= endDateStr;
       }
-      // Date object comparison for relative ranges
       const recordDate = new Date(s.date);
       return recordDate >= cutoff!;
     });
   }, [master.data, timeRange, customStart, customEnd]);
 
-  // 2. STATISTICS AGGREGATION
+  // 2. STATISTICS
   const stats = useMemo(() => {
     const totalRevenue = filteredData.reduce((acc, s) => acc + s.amount, 0);
     const totalItems = filteredData.reduce((acc, s) => acc + s.quantity, 0);
     
-    // Group by Product
     const productMap: Record<string, { count: number, revenue: number }> = {};
     const categoryMap: Record<string, number> = {};
 
     filteredData.forEach(s => {
-      // Products
       if (!productMap[s.product]) productMap[s.product] = { count: 0, revenue: 0 };
       productMap[s.product].count += s.quantity;
       productMap[s.product].revenue += s.amount;
-      
-      // Categories
       categoryMap[s.category] = (categoryMap[s.category] || 0) + s.amount;
     });
 
@@ -94,7 +109,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
 
-    // Sort products by count (Quantity Sold)
     const sortedProducts = Object.entries(productMap)
       .map(([name, data]) => ({ name, ...data }))
       .sort((a, b) => b.count - a.count);
@@ -117,22 +131,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredData]);
 
+  // ✅ UPDATED: Busiest Days now calculates Quantity AND Revenue
   const busiestDays = useMemo(() => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const counts = new Array(7).fill(0);
+    // Array of objects { revenue: 0, quantity: 0 }
+    const dayStats = Array.from({ length: 7 }, () => ({ revenue: 0, quantity: 0 }));
+
     filteredData.forEach(s => {
-      // Use local parsing to ensure we get the correct Day of Week
+      // Robust Date Parsing for Day of Week
       const [y, m, d] = s.date.split('-').map(Number);
       const localDate = new Date(y, m - 1, d);
-      counts[localDate.getDay()] += s.quantity;
+      const dayIndex = localDate.getDay();
+      
+      dayStats[dayIndex].quantity += s.quantity;
+      dayStats[dayIndex].revenue += s.amount;
     });
-    return days.map((name, i) => ({ name, value: counts[i] }));
+
+    return days.map((name, i) => ({ 
+      name, 
+      quantity: dayStats[i].quantity,
+      revenue: dayStats[i].revenue 
+    }));
   }, [filteredData]);
 
+  // 3. AI ANALYSIS
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
-    // Don't re-run analysis if data hasn't changed unless forced
     const dataHasChanged = !master.analysisTimestamp || new Date(master.lastUpdated) > new Date(master.analysisTimestamp);
     const rangeChanged = lastAnalyzedRange !== timeRange;
     if (!force && !dataHasChanged && !rangeChanged && strategy) return;
@@ -255,7 +280,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
           </div>
         </KPIContainer>
         
-        {/* ✅ UPDATED: Scrollable Total Items List (Grouped) */}
         <KPIContainer label="Total Items" value={stats.totalItems.toLocaleString()}>
           <div className="mt-6 space-y-3 overflow-y-auto max-h-[220px] pr-2 custom-scrollbar">
              {stats.sortedProducts.length > 0 ? (
@@ -318,12 +342,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
            </div>
         </div>
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
-           <h3 className="text-xl font-black mb-8 flex items-center gap-3"><CalendarDays className="w-5 h-5 text-emerald-500" /> Best Days</h3>
+           {/* ✅ UPDATED Title */}
+           <h3 className="text-xl font-black mb-8 flex items-center gap-3"><CalendarDays className="w-5 h-5 text-emerald-500" /> Best Days of the Week</h3>
            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busiestDays}>
                   <XAxis dataKey="name" tick={{fontSize: 9}} />
-                  <Bar dataKey="value" fill="#059669" radius={[10, 10, 0, 0]} />
+                  {/* ✅ UPDATED Tooltip */}
+                  <Tooltip content={<CustomDayTooltip />} cursor={{fill: '#f1f5f9'}} />
+                  <Bar dataKey="quantity" fill="#059669" radius={[10, 10, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
            </div>
