@@ -121,7 +121,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     if (!force && !dataHasChanged && !rangeChanged && strategy) return;
     setIsAiLoading(true);
     try {
-      const apiKey = process.env.API_KEY;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) {
         if (window.aistudio?.openSelectKey) await window.aistudio.openSelectKey();
         setIsAiLoading(false);
