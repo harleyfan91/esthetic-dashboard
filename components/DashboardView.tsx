@@ -46,7 +46,7 @@ const CustomDayTooltip = ({ active, payload, label }: any) => {
 };
 
 const CustomRevenueTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
+  if (active && payload && payload.length && payload[0].value !== undefined) {
     return (
       <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-800 animate-in zoom-in duration-200 min-w-[140px]">
         <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2">{label}</p>
@@ -98,11 +98,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }
 
     return master.data.filter(s => {
+      // Safety check for invalid dates
+      if (!s.date) return false;
+      
       if (timeRange === 'custom') {
           return s.date >= startDateStr && s.date <= endDateStr;
       }
       const recordDate = new Date(s.date);
-      return recordDate >= cutoff!;
+      // Ensure date is valid before comparing
+      return !isNaN(recordDate.getTime()) && recordDate >= cutoff!;
     });
   }, [master.data, timeRange, customStart, customEnd]);
 
@@ -115,10 +119,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     const categoryMap: Record<string, number> = {};
 
     filteredData.forEach(s => {
-      if (!productMap[s.product]) productMap[s.product] = { count: 0, revenue: 0 };
-      productMap[s.product].count += s.quantity;
-      productMap[s.product].revenue += s.amount;
-      categoryMap[s.category] = (categoryMap[s.category] || 0) + s.amount;
+      const prodName = s.product || "Unknown";
+      const catName = s.category || "General";
+
+      if (!productMap[prodName]) productMap[prodName] = { count: 0, revenue: 0 };
+      productMap[prodName].count += s.quantity;
+      productMap[prodName].revenue += s.amount;
+      
+      categoryMap[catName] = (categoryMap[catName] || 0) + s.amount;
     });
 
     const categoryData = Object.entries(categoryMap)
@@ -137,6 +145,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
   const revenueTrend = useMemo(() => {
     type DailyTrendItem = { revenue: number, items: {name: string, qty: number}[] };
     const daily = filteredData.reduce<Record<string, DailyTrendItem>>((acc, s) => {
+      if (!s.date) return acc;
       if (!acc[s.date]) acc[s.date] = { revenue: 0, items: [] };
       acc[s.date].revenue += s.amount;
       return acc;
@@ -152,12 +161,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     const dayStats = Array.from({ length: 7 }, () => ({ revenue: 0, quantity: 0 }));
 
     filteredData.forEach(s => {
-      const [y, m, d] = s.date.split('-').map(Number);
+      // ✅ CRASH PREVENTION: Validate date parts
+      if (!s.date || !s.date.includes('-')) return;
+
+      const parts = s.date.split('-').map(Number);
+      if (parts.length !== 3) return;
+
+      const [y, m, d] = parts;
       const localDate = new Date(y, m - 1, d);
+      
+      // Check for Invalid Date
+      if (isNaN(localDate.getTime())) return;
+
       const dayIndex = localDate.getDay();
       
-      dayStats[dayIndex].quantity += s.quantity;
-      dayStats[dayIndex].revenue += s.amount;
+      // Ensure index is within bounds (0-6)
+      if (dayIndex >= 0 && dayIndex < 7) {
+        dayStats[dayIndex].quantity += s.quantity;
+        dayStats[dayIndex].revenue += s.amount;
+      }
     });
 
     return days.map((name, i) => ({ 
@@ -167,7 +189,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }));
   }, [filteredData]);
 
-  // 3. AI ANALYSIS (Refined to strictly JSON)
+  // 3. AI ANALYSIS
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
@@ -191,7 +213,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         timeSpanLabel: timeRange 
       };
       
-      // ✅ CHANGED: Switched to stable model 'gemini-1.5-flash'
       const response = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: `Analyze this data: ${JSON.stringify(summary)}. 
@@ -428,6 +449,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
            <Trash2 className="w-4 h-4" /> Reset Records
          </button>
       </div>
+    </div>
+  );
+};
+
+const KPIContainer = ({ label, value, subtitle, children }: any) => {
+  return (
+    <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-xl min-h-[300px]">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{label}</p>
+      <p className="text-3xl font-black text-slate-900 tracking-tighter truncate">{value}</p>
+      {subtitle && <p className="text-xs font-bold text-indigo-500 mt-2">{subtitle}</p>}
+      {children}
     </div>
   );
 };
