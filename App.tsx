@@ -43,15 +43,12 @@ const App: React.FC = () => {
     googleService.initGis().catch(err => console.warn("Background cloud init pending:", err));
   }, [googleService]);
 
-  // ✅ UPDATED: Captures 'webViewLink' from cloud save response
   useEffect(() => {
     if (master && googleUser && googleService.getStoredToken()) {
       const syncToCloud = async () => {
         setCloudSyncing(true);
         try {
           const fileMeta = await googleService.saveJsonToCloud(MASTER_FILE_NAME, master);
-          
-          // If we got a link back and we don't have it yet, update state
           if (fileMeta?.webViewLink && master.googleFileUrl !== fileMeta.webViewLink) {
              const updated = { ...master, googleFileUrl: fileMeta.webViewLink };
              setMaster(updated);
@@ -116,6 +113,13 @@ const App: React.FC = () => {
     localStorage.setItem('maker_master_record', JSON.stringify(updatedMaster));
   }, [master]);
 
+  // ✅ NEW: Correctly resets the file choice without killing the user session
+  const handleSwitchFile = () => {
+    localStorage.removeItem('maker_master_record');
+    setMaster(null);
+    setView('setup');
+  };
+
   const handleSignOut = () => {
     localStorage.removeItem('maker_master_record');
     window.location.reload();
@@ -137,6 +141,7 @@ const App: React.FC = () => {
       masterName={master?.name} 
       googleUser={googleUser} 
       onSignOut={handleSignOut}
+      onSwitchFile={handleSwitchFile} 
       cloudSyncing={cloudSyncing}
     >
       {view === 'setup' && (
