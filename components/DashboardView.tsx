@@ -8,7 +8,6 @@ import {
   CalendarDays, Calendar
 } from 'lucide-react';
 import { MasterRecord } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -20,8 +19,6 @@ interface DashboardViewProps {
 type TimeRange = 'all' | '7d' | '30d' | 'custom';
 
 const COLORS = ['#6366f1', '#f97316', '#059669', '#8b5cf6', '#ec4899', '#f59e0b'];
-
-// --- CUSTOM TOOLTIPS ---
 
 const CustomDayTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -72,7 +69,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
   
   const dashboardRef = useRef<HTMLDivElement>(null);
 
-  // 1. FILTERING LOGIC
   const filteredData = useMemo(() => {
     if (timeRange === 'all') return master.data;
 
@@ -98,19 +94,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }
 
     return master.data.filter(s => {
-      // Safety check for invalid dates
       if (!s.date) return false;
-      
       if (timeRange === 'custom') {
           return s.date >= startDateStr && s.date <= endDateStr;
       }
       const recordDate = new Date(s.date);
-      // Ensure date is valid before comparing
       return !isNaN(recordDate.getTime()) && recordDate >= cutoff!;
     });
   }, [master.data, timeRange, customStart, customEnd]);
 
-  // 2. STATISTICS
   const stats = useMemo(() => {
     const totalRevenue = filteredData.reduce((acc, s) => acc + s.amount, 0);
     const totalItems = filteredData.reduce((acc, s) => acc + s.quantity, 0);
@@ -161,21 +153,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     const dayStats = Array.from({ length: 7 }, () => ({ revenue: 0, quantity: 0 }));
 
     filteredData.forEach(s => {
-      // ✅ CRASH PREVENTION: Validate date parts
       if (!s.date || !s.date.includes('-')) return;
-
       const parts = s.date.split('-').map(Number);
       if (parts.length !== 3) return;
-
       const [y, m, d] = parts;
       const localDate = new Date(y, m - 1, d);
-      
-      // Check for Invalid Date
       if (isNaN(localDate.getTime())) return;
-
       const dayIndex = localDate.getDay();
-      
-      // Ensure index is within bounds (0-6)
       if (dayIndex >= 0 && dayIndex < 7) {
         dayStats[dayIndex].quantity += s.quantity;
         dayStats[dayIndex].revenue += s.amount;
@@ -189,7 +173,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
     }));
   }, [filteredData]);
 
-  // 3. AI ANALYSIS
+  // --- AI ANALYSIS (DIRECT FETCH) ---
   const getStrategicAnalysis = async (force = false) => {
     if (filteredData.length === 0) return;
     
@@ -205,41 +189,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         setIsAiLoading(false);
         return;
       }
-      const ai = new GoogleGenAI({ apiKey });
+
       const summary = { 
         totalRecords: filteredData.length, 
         totalRevenue: stats.totalRevenue, 
         topProduct: stats.topProduct?.name, 
         timeSpanLabel: timeRange 
       };
-      
-      // ✅ FIX: Reverted to standard 'gemini-1.5-flash'
-      const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
-        contents: `Analyze this data: ${JSON.stringify(summary)}. 
-        Return a JSON object with these 4 keys (strings):
-        "drive": A 5-word motivational phrase.
-        "win": The best performing aspect.
-        "risk": A missing opportunity or risk.
-        "action": One specific tactic to increase sales.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              drive: { type: Type.STRING },
-              win: { type: Type.STRING },
-              risk: { type: Type.STRING },
-              action: { type: Type.STRING },
-            }
-          }
-        }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Analyze this data: ${JSON.stringify(summary)}. 
+              Return a JSON object with these 4 keys (strings):
+              "drive": A 5-word motivational phrase.
+              "win": The best performing aspect.
+              "risk": A missing opportunity or risk.
+              "action": One specific tactic to increase sales.`
+            }]
+          }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
       });
+
+      if (!response.ok) throw new Error(`Gemini API Error: ${response.statusText}`);
+      const data = await response.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       
-      // ✅ FIX: Strip Markdown Code Blocks
-      const rawText = response.text || '{}';
       const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-      
       setStrategy(cleanJson);
       setLastAnalyzedRange(timeRange);
       onSaveAnalysis(cleanJson);
@@ -250,7 +231,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
 
   useEffect(() => { getStrategicAnalysis(); }, [filteredData.length, timeRange, master.lastUpdated]);
 
-  // Parsing Logic (JSON or Fallback)
   let driveText = "Ready to analyze...";
   let insightCards = [
     { title: "SUCCESS", text: "Tracking sales data." },
@@ -279,7 +259,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         ];
       }
     } catch (e) {
-      // Legacy Fallback
       const parts = strategy.split('---');
       const d = parts.find(s => s.includes('DRIVE:'));
       if (d) driveText = d.replace('DRIVE:', '').trim();
@@ -315,7 +294,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
 
   return (
     <div className="space-y-8 pb-24" ref={dashboardRef}>
-      {/* Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <h1 className="text-4xl font-black text-slate-900 tracking-tight">Dashboard</h1>
@@ -333,7 +311,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         </div>
       </header>
 
-      {/* Date Filters */}
       <div className="bg-white rounded-[32px] p-3 border border-slate-100 shadow-sm flex flex-col md:flex-row items-center gap-4 no-export">
          <div className="flex gap-2">
             {(['all', '7d', '30d', 'custom'] as TimeRange[]).map((r) => (
@@ -342,8 +319,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
               </button>
             ))}
          </div>
-         
-         {/* Custom Range Inputs */}
          {timeRange === 'custom' && (
            <div className="flex items-center gap-2 animate-in slide-in-from-left-4 fade-in duration-300">
               <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
@@ -359,10 +334,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
          )}
       </div>
 
-      {/* KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <KPIContainer label="Revenue" value={`$${stats.totalRevenue.toLocaleString()}`}>
-          {/* ✅ FIX: Added w-full and h-full with explicit style to fix width(-1) error */}
           <div className="h-48 mt-6 w-full" style={{ width: '100%', height: '192px' }}>
              {stats.categoryData.length > 0 && (
                <ResponsiveContainer width="100%" height="100%">
@@ -376,7 +349,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
              )}
           </div>
         </KPIContainer>
-        
         <KPIContainer label="Total Items" value={stats.totalItems.toLocaleString()}>
           <div className="mt-6 space-y-3 overflow-y-auto max-h-[220px] pr-2 custom-scrollbar">
              {stats.sortedProducts.length > 0 ? (
@@ -391,7 +363,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
              )}
           </div>
         </KPIContainer>
-        
         <KPIContainer label="Top Seller" value={stats.topProduct ? stats.topProduct.name : 'None'} subtitle={`${stats.topProduct ? stats.topProduct.count : 0} units sold`}>
            <div className="mt-8 p-5 bg-indigo-50 rounded-3xl">
               <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Performance</p>
@@ -402,7 +373,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         </KPIContainer>
       </div>
 
-      {/* AI Insights */}
       <div className="bg-slate-900 rounded-[40px] p-8 md:p-10 text-white shadow-2xl">
         <div className="flex items-center gap-3 mb-6">
           <BrainCircuit className="w-6 h-6 text-indigo-400" />
@@ -421,11 +391,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         </div>
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
            <h3 className="text-xl font-black mb-8 flex items-center gap-3"><TrendingUp className="w-5 h-5 text-orange-500" /> Revenue</h3>
-           {/* ✅ FIX: Added explicit style container */}
            <div className="h-64 w-full" style={{ width: '100%', height: '256px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={revenueTrend}>
@@ -438,7 +406,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ master, onSaveAnal
         </div>
         <div className="bg-white p-8 rounded-[40px] shadow-xl">
            <h3 className="text-xl font-black mb-8 flex items-center gap-3"><CalendarDays className="w-5 h-5 text-emerald-500" /> Best Days of the Week</h3>
-           {/* ✅ FIX: Added explicit style container */}
            <div className="h-64 w-full" style={{ width: '100%', height: '256px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busiestDays}>
