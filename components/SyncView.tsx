@@ -30,6 +30,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
     setProcessingStep('Reading report content...');
     
     try {
+      // Duplication Check
       if (master.syncedFiles && master.syncedFiles.includes(fileName)) {
         throw new Error(`File "${fileName}" has already been synced.`);
       }
@@ -41,9 +42,10 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
       if (json.length === 0) throw new Error("The selected file appears to be empty.");
 
       let mapping = master.mappingSchema;
+      
+      // 1. AI Auto-Mapping Logic
       if (!mapping) {
         setProcessingStep('AI is mapping your columns...');
-        
         try {
           const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
           if (!apiKey || apiKey.trim() === '') {
@@ -74,9 +76,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
           });
           
           const text = response.text;
-          if (text) {
-            mapping = JSON.parse(text);
-          }
+          if (text) mapping = JSON.parse(text);
         } catch (apiErr: any) {
           console.error("Gemini AI Error:", apiErr);
           if (apiErr.message?.includes('API Key must be set')) {
@@ -85,6 +85,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         }
       }
 
+      // 2. Fallback to Manual Mapping
       if (!mapping || !mapping.date || !mapping.product) {
         setPendingData({ json, fileName });
         setManualMapping({ date: '', product: '', amount: '', category: '', quantity: '' });
@@ -103,45 +104,40 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
     try {
       setProcessingStep('Building master records...');
       
-      // ✅ IMPROVED DATE PARSING LOGIC
+      // ✅ REFINED DATE PARSER WITH CENTURY FIX
       const parseDate = (val: any) => {
-        if (!val) return new Date().toLocaleDateString("en-CA"); // Return local today
+        if (!val) return new Date().toLocaleDateString("en-CA");
 
         let dateObj: Date | null = null;
 
-        // 1. If it's already a JS Date (from XLSX cellDates: true)
-        if (val instanceof Date) {
-          dateObj = val;
-        } 
-        // 2. If it's a Number (Excel Serial Date)
-        else if (typeof val === 'number') {
-          // Logic: 25569 is Jan 1, 1970. 
-          // If the number is smaller than 25569, it's likely NOT a date (e.g. Quantity 5, ID 100).
-          // We treat it as invalid to avoid "1970" errors.
-          if (val > 25569) {
-            // Convert Excel serial to JS Date (UTC)
+        // A. Handle Excel Serial Numbers
+        if (typeof val === 'number') {
+          if (val > 25569) { // > 1970
+            // Convert to JS Date (UTC)
             dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
-          } else {
-            // It's a small number, probably mapped wrong. Return Today or fallback.
-            return new Date().toLocaleDateString("en-CA");
           }
-        }
-        // 3. If it's a String
+        } 
+        // B. Handle Strings / Existing Date Objects
         else {
-          const d = new Date(val);
-          // Check if valid
-          if (!isNaN(d.getTime())) {
-             dateObj = d;
-          }
+          dateObj = new Date(val);
         }
 
-        // Final check and formatting
+        // C. Validate and Fix Year
         if (dateObj && !isNaN(dateObj.getTime())) {
-          // "en-CA" formats as YYYY-MM-DD in LOCAL time, preventing the "day before" UTC bug
-          return dateObj.toLocaleDateString("en-CA");
+          let year = dateObj.getUTCFullYear(); // Use UTC to avoid timezone shifts
+          
+          // FIX: If year is interpreted as 19xx (e.g. 1926 instead of 2026), fix it.
+          // We assume business data is likely after year 2000.
+          if (year >= 1900 && year < 2000) {
+            dateObj.setFullYear(year + 100);
+          }
+
+          // Return strictly YYYY-MM-DD
+          return dateObj.toISOString().split('T')[0];
         }
 
-        return new Date().toLocaleDateString("en-CA");
+        // Fallback to today if parsing completely failed
+        return new Date().toISOString().split('T')[0];
       };
 
       const newSales: SaleRecord[] = json
@@ -185,7 +181,6 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
         token = await googleService.authenticate();
         setIsProcessing(false);
       }
-      if (!token) throw new Error("Connection failed.");
       
       googleService.openPicker(token, async (file) => {
         setIsProcessing(true);
@@ -208,6 +203,7 @@ export const SyncView: React.FC<SyncViewProps> = ({ master, onSync, googleServic
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Manual Mapping Modal */}
       {pendingData && manualMapping && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-xl shadow-2xl overflow-hidden">
